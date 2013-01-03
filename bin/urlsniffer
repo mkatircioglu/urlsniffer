@@ -1,0 +1,182 @@
+#!/usr/bin/python
+import os
+import sys
+import logging
+import optparse
+import ConfigParser
+from urlsniffer import service
+from pcapy import findalldevs
+import subprocess
+
+
+def main():
+    """
+        Main function.
+    """
+
+    # Command line options
+    parser = optparse.OptionParser()
+    parser.add_option("-c", "--config", dest="config_file",
+                        default="/etc/urlsniffer.conf",
+                      help="Use alternate configuration file", metavar="FILE")
+    parser.add_option("-p", "--pid-file", dest="pidfile",
+                        default="/var/run/urlsniffer.pid",
+                      help="Use alternate pid file", metavar="FILE")
+    parser.add_option("-d", "--daemon", action="store_true", dest="daemon",
+                      help="Run as a daemon.")
+    parser.add_option("-k", "--kill", action="store_true", dest="kill", default=False,
+                      help="Kill running daemon.")
+    parser.add_option("-n", "--dry-run", action="store_true", dest="dry_run",
+                      help="Do nothing, just tell.")
+    parser.add_option("-g", "--debug", dest="debug", action="store_true",
+                      help="Debug mode")
+    parser.add_option("-v", "--verbose", dest="verbose", action="store_true",
+                      help="Verbose mode")
+    (options, args) = parser.parse_args()
+
+    # Only root can run that application
+    if os.getuid() != 0:
+        print "%s must be run as root." % sys.argv[0]
+        sys.exit(1)
+
+    # Normalize configuration file path
+    options.config_file = os.path.realpath(options.config_file)
+
+    # Read configuration file
+    if not os.path.exists(options.config_file):
+        print "%s is missing." % options.config_file
+        sys.exit(1)
+
+    # Load configuration
+    load_config(options)
+
+    # Init logger
+    init_logger(options)
+
+    # Run service
+    run_service(options)
+
+    sys.exit(0)
+
+
+def load_config(options):
+    """
+        Load optional configuration.
+
+        Arguments:
+            parser: Options parsed with ConfigParser module
+            options: Options parsed with optparse module
+    """
+    parser = ConfigParser.ConfigParser()
+    try:
+        parser.read(options.config_file)
+    except IOError:
+        print "%s is corrupted." % options.config_file
+        sys.exit(1)
+
+    # Log file
+    if parser.has_option("general", "logfile"):
+        options.logfile = parser.get("general", "logfile")
+    else:
+        options.logfile = "/var/log/urlsniffer/urlsniffer.log"
+
+    # Sniffed packet log file
+    if parser.has_option("general", ""):
+        options.dumpfile = parser.get("general", "dumpfile")
+    else:
+        options.dumpfile = "/var/log/urlsniffer/access_log"
+
+    # Ports
+    if parser.has_option("general", "port"):
+        options.port = int(parser.get("general", "port"))
+    else:
+        options.port = 80
+
+    # Protocol
+    if parser.has_option("general", "protocol"):
+        options.protocol = parser.get("general", "protocol")
+    else:
+        options.protocol = "TCP"
+
+    # Timeout
+    if parser.has_option("general", "timeout"):
+        options.timeout = int(parser.get("general", "timeout"))
+    else:
+        options.timeout = 1000
+
+    # Network interface
+    if parser.has_option("general", "address"):
+        address = parser.get("general", "address")
+        options.interface = get_interface(address)
+        if not options.interface:
+            print "You must defined right ip address to obtain the captured interface."
+            sys.exit(1)
+        elif options.interface and options.interface not in findalldevs():
+            print "The defined network (%s) interface was not found." % options.interface
+            sys.exit(1)
+    else:
+        print "You must defined any ip address to obtain the captured interface."
+        sys.exit(1)
+
+def get_interface(address):
+    interface = None
+    ip = subprocess.Popen(["ip", "-4", "addr", "ls"],
+                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, close_fds=True)
+    (stdout, stderr) = ip.communicate()
+    for line in stdout.split("\n"):
+        fields = [ field.strip() for field in line.split() ]
+        if fields and fields[0] == "inet" and fields[1].split("/")[0] == address:
+            interface = fields[-1]
+            break
+
+    return interface
+
+def init_logger(options):
+    """
+        Initializes logger
+
+        Arguments:
+            options: Options parsed with optparse module
+    """
+    if options.debug:
+        level = logging.DEBUG
+    elif options.verbose:
+        level = logging.INFO
+    else:
+        level = logging.WARNING
+
+    if options.daemon:
+        filename = options.logfile
+        log_dir = os.path.dirname(options.logfile)
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+    else:
+        filename = None
+
+    logging.basicConfig(filename=filename,
+                        level=level,
+                        format="%(asctime)-15s  %(message)s")
+
+def run_service(options):
+    """
+        Run service.
+
+        Arguments:
+            options: Options parsed with optparse module
+    """
+    # It's time to enter the main loop:
+    daemon = service.Service(options)
+    if options.daemon or options.kill:
+        if options.kill:
+            daemon.stop()
+        else:
+            daemon.start()
+
+    elif not options.kill:
+        # Interactive mode for debugging
+        daemon.run()
+
+if __name__ == "__main__":
+    sys.exit(main())
+

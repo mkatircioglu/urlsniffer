@@ -1,0 +1,5 @@
+/var/log/urlsniffer/* {
+    missingok
+    size 100k
+    notifempty
+}

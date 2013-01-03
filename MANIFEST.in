@@ -1,0 +1,5 @@
+include urlsniffer/*.py
+include bin/*
+include data/*
+include README AUTHORS LICENSE MANIFEST.in
+include setup.py urlsniffer.spec

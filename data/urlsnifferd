@@ -1,0 +1,55 @@
+#!/bin/bash
+#
+#
+
+# Source function library.
+. /etc/rc.d/init.d/functions
+
+prog=urlsniffer
+pidfile=${PIDFILE-/var/run/urlsniffer.pid}
+lockfile=${LOCKFILE-/var/lock/subsys/urlsniffer}
+
+# Start the service UrlSniffer
+start() {
+        echo -n $"Starting UrlSniffer daemon: "
+        $prog -d --pid-file=$pidfile
+        RETVAL=$?
+        [ $RETVAL -eq 0 ] && touch /var/lock/subsys/$prog
+        [ $RETVAL -eq 0 ] && success "UrlSniffer startup" || failure "UrlSniffer startup"
+        echo
+}
+
+# Stop the service UrlSniffer
+stop() {
+    echo -n $"Stopping UrlSniffer daemon: "
+    $prog -k
+    RETVAL=$?
+    echo
+    if [ $RETVAL -eq 0 ]; then
+        rm -f /var/lock/subsys/$prog
+        rm -f $pidfile
+    fi
+}
+
+### main logic ###
+case "$1" in
+  start)
+        start
+        ;;
+  stop)
+        stop
+        ;;
+  status)
+      status -p ${pidfile} $httpd
+      RETVAL=$?
+      ;;
+  restart|reload|condrestart)
+        stop
+        start
+        ;;
+  *)
+        echo $"Usage: $0 {start|stop|restart|reload|status}"
+        exit 1
+esac
+
+exit $RETVAL
